@@ -291,13 +291,6 @@
     border-bottom:1px solid var(--brass-light);padding-bottom:8px;margin:0 0 6px;
   }
 
-  textarea.notes-area{
-    width:100%;min-height:360px;font-family:var(--font-sans);font-size:16px;line-height:1.7;
-    border:1px solid var(--line);border-radius:var(--radius);padding:16px;background:var(--card);
-    resize:vertical;
-  }
-  textarea.notes-area:focus{outline:none;border-color:var(--brass);}
-
   .empty-hint{color:var(--ink-soft);font-size:14.5px;padding:6px 2px 14px;}
 
   footer.app-footer{
@@ -416,9 +409,8 @@
 
   <section class="panel" id="panel-attire">
     <div class="section-head">
-      <div><h2>Attire</h2><div class="section-sub">Outfit wishlist and boutique tracker</div></div>
+      <div><h2>Attire</h2><div class="section-sub">Outfit wishlist</div></div>
     </div>
-    <h3 style="font-family:var(--font-display);font-weight:400;color:var(--ink);">Outfit Wishlist</h3>
     <div class="card">
       <div class="row-grid" style="grid-template-columns:1.4fr 1fr 0.7fr 0.9fr;">
         <div><span class="field-label">Item</span><input id="outfitItem" placeholder="Dress, veil, shoes..."></div>
@@ -427,22 +419,11 @@
         <div><span class="field-label">Status</span>
           <select id="outfitStatus"><option>Considering</option><option>Ordered</option><option>In alterations</option><option>Done</option></select>
         </div>
+        <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input id="outfitNotes" placeholder="Size, alterations, who's coming with..."></div>
       </div>
       <button class="btn add" id="addOutfitBtn">Add item</button>
     </div>
     <div id="outfitList"></div>
-
-    <h3 style="font-family:var(--font-display);font-weight:400;color:var(--ink);margin-top:26px;">Boutique Tracker</h3>
-    <div class="card">
-      <div class="row-grid" style="grid-template-columns:1.2fr 1fr 1fr 0.6fr;">
-        <div><span class="field-label">Boutique</span><input id="boutName" placeholder="Name"></div>
-        <div><span class="field-label">Location</span><input id="boutLocation" placeholder="City"></div>
-        <div><span class="field-label">Contact / Link</span><input id="boutLink" placeholder="phone, email, or URL"></div>
-        <div><span class="field-label">Price</span><input id="boutPrice" placeholder="$"></div>
-      </div>
-      <button class="btn add" id="addBoutBtn">Add boutique</button>
-    </div>
-    <div id="boutList"></div>
   </section>
 
   <section class="panel" id="panel-vendors">
@@ -507,7 +488,13 @@
     <div class="section-head">
       <div><h2>Notes</h2><div class="section-sub">Anything that doesn't fit elsewhere</div></div>
     </div>
-    <textarea class="notes-area" id="notesArea" placeholder="Start typing..."></textarea>
+    <div class="card">
+      <div class="row-grid" style="grid-template-columns:1fr;">
+        <div><span class="field-label">Note</span><input id="miscNoteInput" placeholder="Jot something down..."></div>
+      </div>
+      <button class="btn add" id="addMiscNoteBtn">Add note</button>
+    </div>
+    <div id="notesList"></div>
   </section>
 </main>
 
@@ -666,17 +653,17 @@
     keyDates:[],
     vision:[],
     attireWishlist:[],
-    boutiques:[],
     vendors:[],
     party:[],
     timeline:[],
     emergencyKit:{},
     notes:'',
+    miscNotes:[],
   });
 
   let state = DEFAULT_STATE();
   let saveTimer = null;
-  const editing = { dates:null, vision:null, outfits:null, boutiques:null, vendors:null, party:null, timeline:null };
+  const editing = { dates:null, vision:null, outfits:null, vendors:null, party:null, timeline:null, miscNotes:null };
 
   function uid(){ return Math.random().toString(36).slice(2,10); }
 
@@ -731,6 +718,11 @@
       }
     }catch(e){
       // no saved data yet, or storage unavailable — start fresh
+    }
+    if(state.notes && state.notes.trim() && (!state.miscNotes || !state.miscNotes.length)){
+      state.miscNotes = [{id:uid(), text: state.notes.trim()}];
+      state.notes = '';
+      queueSave();
     }
     hydrateAll();
   }
@@ -1150,6 +1142,7 @@
                 ${['Considering','Ordered','In alterations','Done'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
               </select>
             </div>
+            <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input type="text" data-f="notes" value="${escapeAttr(o.notes||'')}"></div>
           </div>
           <div class="row-actions">
             <button class="row-action save" data-id="${o.id}">Save</button>
@@ -1164,6 +1157,7 @@
             ${o.link?`<a href="${escapeAttr(o.link)}" target="_blank" rel="noopener">Open link</a>`:''}
             <span style="font-size:13px;color:var(--emerald);letter-spacing:0.04em;">${escapeHtml(o.status)}</span>
           </div>
+          ${o.notes?`<div style="font-size:14px;color:var(--ink-soft);margin-top:6px;">${escapeHtml(o.notes)}</div>`:''}
         </div>
         <div class="row-actions">
           <button class="row-action edit" data-id="${o.id}">Edit</button>
@@ -1192,68 +1186,10 @@
           o.link = card.querySelector('[data-f="link"]').value.trim();
           o.price = card.querySelector('[data-f="price"]').value.trim();
           o.status = card.querySelector('[data-f="status"]').value;
+          o.notes = card.querySelector('[data-f="notes"]').value.trim();
         }
         editing.outfits = null;
         queueSave(); renderOutfits();
-      });
-    });
-  }
-  function renderBoutiques(){
-    const list = document.getElementById('boutList');
-    if(!state.boutiques.length){ list.innerHTML = '<p class="empty-hint">No boutiques logged yet.</p>'; return; }
-    list.innerHTML = state.boutiques.map(bt=>{
-      if(editing.boutiques === bt.id){
-        return `<div class="card edit-form">
-          <div class="row-grid" style="grid-template-columns:1.2fr 1fr 1fr 0.6fr;">
-            <div><span class="field-label">Boutique</span><input type="text" data-f="name" value="${escapeAttr(bt.name||'')}"></div>
-            <div><span class="field-label">Location</span><input type="text" data-f="location" value="${escapeAttr(bt.location||'')}"></div>
-            <div><span class="field-label">Contact / Link</span><input type="text" data-f="link" value="${escapeAttr(bt.link||'')}"></div>
-            <div><span class="field-label">Price</span><input type="text" data-f="price" value="${escapeAttr(bt.price||'')}"></div>
-          </div>
-          <div class="row-actions">
-            <button class="row-action save" data-id="${bt.id}">Save</button>
-            <button class="row-action cancel" data-id="${bt.id}">Cancel</button>
-          </div>
-        </div>`;
-      }
-      return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div>
-          <div style="font-size:16px;">${escapeHtml(bt.name)} ${bt.location?`<span style="color:var(--ink-soft);">— ${escapeHtml(bt.location)}</span>`:''}</div>
-          <div class="links-row">
-            ${bt.link?`<span style="font-size:14.5px;color:var(--ink-soft);">${escapeHtml(bt.link)}</span>`:''}
-            ${bt.price?`<span style="font-size:14.5px;color:var(--emerald);">${escapeHtml(bt.price)}</span>`:''}
-          </div>
-        </div>
-        <div class="row-actions">
-          <button class="row-action edit" data-id="${bt.id}">Edit</button>
-          <button class="row-action remove" data-id="${bt.id}">Remove</button>
-        </div>
-      </div>`;
-    }).join('');
-    list.querySelectorAll('.row-action.edit').forEach(b=>{
-      b.addEventListener('click', ()=>{ editing.boutiques = b.dataset.id; renderBoutiques(); });
-    });
-    list.querySelectorAll('.row-action.cancel').forEach(b=>{
-      b.addEventListener('click', ()=>{ editing.boutiques = null; renderBoutiques(); });
-    });
-    list.querySelectorAll('.row-action.remove').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        state.boutiques = state.boutiques.filter(bt=>bt.id!==btn.dataset.id);
-        queueSave(); renderBoutiques();
-      });
-    });
-    list.querySelectorAll('.row-action.save').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const card = btn.closest('.card');
-        const bt = state.boutiques.find(x=>x.id===btn.dataset.id);
-        if(bt){
-          bt.name = card.querySelector('[data-f="name"]').value.trim();
-          bt.location = card.querySelector('[data-f="location"]').value.trim();
-          bt.link = card.querySelector('[data-f="link"]').value.trim();
-          bt.price = card.querySelector('[data-f="price"]').value.trim();
-        }
-        editing.boutiques = null;
-        queueSave(); renderBoutiques();
       });
     });
   }
@@ -1491,13 +1427,49 @@
   }
 
   /* ---------- Notes ---------- */
-  function hydrateNotes(){
-    document.getElementById('notesArea').value = state.notes||'';
-  }
-  function bindNotes(){
-    document.getElementById('notesArea').addEventListener('input', e=>{
-      state.notes = e.target.value;
-      queueSave();
+  function renderNotesList(){
+    const list = document.getElementById('notesList');
+    if(!state.miscNotes.length){ list.innerHTML = '<p class="empty-hint">No notes yet — add your first one above.</p>'; return; }
+    list.innerHTML = state.miscNotes.map(n=>{
+      if(editing.miscNotes === n.id){
+        return `<div class="card edit-form">
+          <div class="row-grid" style="grid-template-columns:1fr;">
+            <div><span class="field-label">Note</span><input type="text" data-f="text" value="${escapeAttr(n.text||'')}"></div>
+          </div>
+          <div class="row-actions">
+            <button class="row-action save" data-id="${n.id}">Save</button>
+            <button class="row-action cancel" data-id="${n.id}">Cancel</button>
+          </div>
+        </div>`;
+      }
+      return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div style="font-size:16px;">${escapeHtml(n.text)}</div>
+        <div class="row-actions">
+          <button class="row-action edit" data-id="${n.id}">Edit</button>
+          <button class="row-action remove" data-id="${n.id}">Remove</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.row-action.edit').forEach(b=>{
+      b.addEventListener('click', ()=>{ editing.miscNotes = b.dataset.id; renderNotesList(); });
+    });
+    list.querySelectorAll('.row-action.cancel').forEach(b=>{
+      b.addEventListener('click', ()=>{ editing.miscNotes = null; renderNotesList(); });
+    });
+    list.querySelectorAll('.row-action.remove').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        state.miscNotes = state.miscNotes.filter(n=>n.id!==b.dataset.id);
+        queueSave(); renderNotesList();
+      });
+    });
+    list.querySelectorAll('.row-action.save').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const card = b.closest('.card');
+        const n = state.miscNotes.find(x=>x.id===b.dataset.id);
+        if(n){ n.text = card.querySelector('[data-f="text"]').value.trim(); }
+        editing.miscNotes = null;
+        queueSave(); renderNotesList();
+      });
     });
   }
 
@@ -1546,26 +1518,22 @@
       const link = document.getElementById('outfitLink').value.trim();
       const price = document.getElementById('outfitPrice').value.trim();
       const status = document.getElementById('outfitStatus').value;
+      const notes = document.getElementById('outfitNotes').value.trim();
       if(!item) return showToast('Name the item first');
-      state.attireWishlist.push({id:uid(), item, link, price, status});
+      state.attireWishlist.push({id:uid(), item, link, price, status, notes});
       document.getElementById('outfitItem').value='';
       document.getElementById('outfitLink').value='';
       document.getElementById('outfitPrice').value='';
+      document.getElementById('outfitNotes').value='';
       queueSave(); renderOutfits();
     });
 
-    document.getElementById('addBoutBtn').addEventListener('click', ()=>{
-      const name = document.getElementById('boutName').value.trim();
-      const location = document.getElementById('boutLocation').value.trim();
-      const link = document.getElementById('boutLink').value.trim();
-      const price = document.getElementById('boutPrice').value.trim();
-      if(!name) return showToast('Name the boutique first');
-      state.boutiques.push({id:uid(), name, location, link, price});
-      document.getElementById('boutName').value='';
-      document.getElementById('boutLocation').value='';
-      document.getElementById('boutLink').value='';
-      document.getElementById('boutPrice').value='';
-      queueSave(); renderBoutiques();
+    document.getElementById('addMiscNoteBtn').addEventListener('click', ()=>{
+      const text = document.getElementById('miscNoteInput').value.trim();
+      if(!text) return showToast('Type a note first');
+      state.miscNotes.push({id:uid(), text});
+      document.getElementById('miscNoteInput').value='';
+      queueSave(); renderNotesList();
     });
 
     document.getElementById('addVendBtn').addEventListener('click', ()=>{
@@ -1635,19 +1603,17 @@
     renderDates();
     renderVision();
     renderOutfits();
-    renderBoutiques();
     renderVendors();
     renderParty();
     renderTimeline();
     renderKit();
-    hydrateNotes();
+    renderNotesList();
   }
 
   buildTabs();
   bindHeader();
   bindAdders();
   bindReset();
-  bindNotes();
   loadState();
 })();
 </script>
