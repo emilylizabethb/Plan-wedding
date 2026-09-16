@@ -283,6 +283,7 @@
   .cal-custom-label{font-size:11px;letter-spacing:0.08em;color:var(--emerald);margin:10px 0 6px;}
   .cal-custom-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:13.5px;}
   .cal-custom-item .remove-cal-date{color:var(--brick);font-size:12px;cursor:pointer;text-decoration:underline;white-space:nowrap;}
+  .outfit-thumb{width:64px;height:64px;object-fit:cover;border-radius:2px;border:1px solid var(--line);flex:0 0 auto;}
 
   /* emergency kit columns */
   .kit-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:26px;}
@@ -388,7 +389,7 @@
 
   <section class="panel" id="panel-vision">
     <div class="section-head">
-      <div><h2>Vision Board</h2><div class="section-sub">Everything you want to steal for the day — paste an image link or just jot the idea</div></div>
+      <div><h2>Vision Board</h2><div class="section-sub">Everything you want to steal for the day — upload a photo, or paste a link if the site allows it</div></div>
     </div>
     <div class="card">
       <div class="row-grid" style="grid-template-columns:1fr 1fr;">
@@ -398,9 +399,10 @@
             <option>Stationery</option><option>Hair &amp; Makeup</option><option>Food &amp; Drink</option><option>Other</option>
           </select>
         </div>
-        <div><span class="field-label">Image link (optional)</span><input type="url" id="visionImg" placeholder="https://..."></div>
+        <div><span class="field-label">Upload a photo</span><input type="file" id="visionFile" accept="image/*"></div>
         <div style="grid-column:1/-1;"><span class="field-label">Idea / note</span><input type="text" id="visionNote" placeholder="What's the idea?"></div>
-        <div style="grid-column:1/-1;"><span class="field-label">Source link (optional)</span><input type="url" id="visionLink" placeholder="https://pinterest.com/..."></div>
+        <div style="grid-column:1/-1;"><span class="field-label">Source link (optional)</span><input type="url" id="visionLink" placeholder="https://pinterest.com/... or the shop page"></div>
+        <div style="grid-column:1/-1;"><span class="field-label">Or paste an image link instead (works for some sites, not others)</span><input type="url" id="visionImg" placeholder="https://..."></div>
       </div>
       <button class="btn add" id="addVisionBtn">Add to board</button>
     </div>
@@ -419,6 +421,7 @@
         <div><span class="field-label">Status</span>
           <select id="outfitStatus"><option>Considering</option><option>Ordered</option><option>In alterations</option><option>Done</option></select>
         </div>
+        <div><span class="field-label">Photo (optional)</span><input type="file" id="outfitFile" accept="image/*"></div>
         <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input id="outfitNotes" placeholder="Size, alterations, who's coming with..."></div>
       </div>
       <button class="btn add" id="addOutfitBtn">Add item</button>
@@ -666,6 +669,29 @@
   const editing = { dates:null, vision:null, outfits:null, vendors:null, party:null, timeline:null, miscNotes:null };
 
   function uid(){ return Math.random().toString(36).slice(2,10); }
+
+  function resizeImageFile(file, maxDim){
+    return new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onerror = ()=> reject(new Error('Could not read file'));
+      reader.onload = ()=>{
+        const img = new Image();
+        img.onerror = ()=> reject(new Error('Could not read image'));
+        img.onload = ()=>{
+          let {width, height} = img;
+          if(width > height && width > maxDim){ height = Math.round(height*(maxDim/width)); width = maxDim; }
+          else if(height > maxDim){ width = Math.round(width*(maxDim/height)); height = maxDim; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
 
   function showToast(msg){
     const t = document.getElementById('toast');
@@ -1074,7 +1100,8 @@
                   ${['Venue','Florals & Decor','Attire','Stationery','Hair & Makeup','Food & Drink','Other'].map(c=>`<option ${v.category===c?'selected':''}>${c}</option>`).join('')}
                 </select>
               </div>
-              <div><span class="field-label">Image link</span><input type="url" data-f="imageUrl" value="${escapeAttr(v.imageUrl||'')}"></div>
+              <div><span class="field-label">Replace photo (optional)</span><input type="file" accept="image/*" data-f="file"></div>
+              <div><span class="field-label">Or image link</span><input type="url" data-f="imageUrl" value="${escapeAttr(v.imageUrl||'')}"></div>
               <div><span class="field-label">Idea / note</span><input type="text" data-f="note" value="${escapeAttr(v.note||'')}"></div>
               <div><span class="field-label">Source link</span><input type="url" data-f="link" value="${escapeAttr(v.link||'')}"></div>
             </div>
@@ -1086,7 +1113,7 @@
         </div>`;
       }
       return `<div class="vision-card">
-        ${v.imageUrl ? `<img class="vision-img" src="${escapeAttr(v.imageUrl)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'vision-placeholder',textContent:'Image unavailable'}))">` : `<div class="vision-placeholder">${escapeHtml(v.category)}</div>`}
+        ${v.imageUrl ? `<img class="vision-img" src="${escapeAttr(v.imageUrl)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'vision-placeholder',textContent:'Site blocked this image — try uploading a photo instead'}))">` : `<div class="vision-placeholder">${escapeHtml(v.category)}</div>`}
         <div class="vision-body">
           <div class="vision-cat">${escapeHtml(v.category)}</div>
           <div class="vision-note">${escapeHtml(v.note)}</div>
@@ -1111,14 +1138,21 @@
       });
     });
     grid.querySelectorAll('.row-action.save').forEach(b=>{
-      b.addEventListener('click', ()=>{
+      b.addEventListener('click', async ()=>{
         const card = b.closest('.vision-card');
         const v = state.vision.find(x=>x.id===b.dataset.id);
         if(v){
           v.category = card.querySelector('[data-f="category"]').value;
-          v.imageUrl = card.querySelector('[data-f="imageUrl"]').value.trim();
           v.note = card.querySelector('[data-f="note"]').value.trim();
           v.link = card.querySelector('[data-f="link"]').value.trim();
+          const file = card.querySelector('[data-f="file"]').files[0];
+          const pastedUrl = card.querySelector('[data-f="imageUrl"]').value.trim();
+          if(file){
+            try{ v.imageUrl = await resizeImageFile(file, 900); }
+            catch(e){ showToast('Could not read that photo'); }
+          } else {
+            v.imageUrl = pastedUrl;
+          }
         }
         editing.vision = null;
         queueSave(); renderVision();
@@ -1142,6 +1176,7 @@
                 ${['Considering','Ordered','In alterations','Done'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
               </select>
             </div>
+            <div><span class="field-label">${o.imageUrl?'Replace photo':'Add photo'}</span><input type="file" accept="image/*" data-f="file"></div>
             <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input type="text" data-f="notes" value="${escapeAttr(o.notes||'')}"></div>
           </div>
           <div class="row-actions">
@@ -1151,13 +1186,16 @@
         </div>`;
       }
       return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div>
-          <div style="font-size:16px;">${escapeHtml(o.item)} ${o.price?`<span style="color:var(--ink-soft);">— ${escapeHtml(o.price)}</span>`:''}</div>
-          <div class="links-row">
-            ${o.link?`<a href="${escapeAttr(o.link)}" target="_blank" rel="noopener">Open link</a>`:''}
-            <span style="font-size:13px;color:var(--emerald);letter-spacing:0.04em;">${escapeHtml(o.status)}</span>
+        <div style="display:flex;gap:12px;align-items:center;">
+          ${o.imageUrl?`<img class="outfit-thumb" src="${escapeAttr(o.imageUrl)}" alt="" onerror="this.remove()">`:''}
+          <div>
+            <div style="font-size:16px;">${escapeHtml(o.item)} ${o.price?`<span style="color:var(--ink-soft);">— ${escapeHtml(o.price)}</span>`:''}</div>
+            <div class="links-row">
+              ${o.link?`<a href="${escapeAttr(o.link)}" target="_blank" rel="noopener">Open link</a>`:''}
+              <span style="font-size:13px;color:var(--emerald);letter-spacing:0.04em;">${escapeHtml(o.status)}</span>
+            </div>
+            ${o.notes?`<div style="font-size:14px;color:var(--ink-soft);margin-top:6px;">${escapeHtml(o.notes)}</div>`:''}
           </div>
-          ${o.notes?`<div style="font-size:14px;color:var(--ink-soft);margin-top:6px;">${escapeHtml(o.notes)}</div>`:''}
         </div>
         <div class="row-actions">
           <button class="row-action edit" data-id="${o.id}">Edit</button>
@@ -1178,7 +1216,7 @@
       });
     });
     list.querySelectorAll('.row-action.save').forEach(b=>{
-      b.addEventListener('click', ()=>{
+      b.addEventListener('click', async ()=>{
         const card = b.closest('.card');
         const o = state.attireWishlist.find(x=>x.id===b.dataset.id);
         if(o){
@@ -1187,6 +1225,11 @@
           o.price = card.querySelector('[data-f="price"]').value.trim();
           o.status = card.querySelector('[data-f="status"]').value;
           o.notes = card.querySelector('[data-f="notes"]').value.trim();
+          const file = card.querySelector('[data-f="file"]').files[0];
+          if(file){
+            try{ o.imageUrl = await resizeImageFile(file, 900); }
+            catch(e){ showToast('Could not read that photo'); }
+          }
         }
         editing.outfits = null;
         queueSave(); renderOutfits();
@@ -1500,31 +1543,45 @@
       queueSave(); renderCalendar(); renderDates();
     });
 
-    document.getElementById('addVisionBtn').addEventListener('click', ()=>{
+    document.getElementById('addVisionBtn').addEventListener('click', async ()=>{
       const category = document.getElementById('visionCategory').value;
-      const imageUrl = document.getElementById('visionImg').value.trim();
+      const file = document.getElementById('visionFile').files[0];
+      const pastedUrl = document.getElementById('visionImg').value.trim();
       const note = document.getElementById('visionNote').value.trim();
       const link = document.getElementById('visionLink').value.trim();
-      if(!note && !imageUrl) return showToast('Add a note or image link');
+      if(!note && !file && !pastedUrl) return showToast('Add a note, photo, or image link');
+      let imageUrl = pastedUrl;
+      if(file){
+        try{ imageUrl = await resizeImageFile(file, 900); }
+        catch(e){ showToast('Could not read that photo'); }
+      }
       state.vision.push({id:uid(), category, imageUrl, note, link});
+      document.getElementById('visionFile').value='';
       document.getElementById('visionImg').value='';
       document.getElementById('visionNote').value='';
       document.getElementById('visionLink').value='';
       queueSave(); renderVision();
     });
 
-    document.getElementById('addOutfitBtn').addEventListener('click', ()=>{
+    document.getElementById('addOutfitBtn').addEventListener('click', async ()=>{
       const item = document.getElementById('outfitItem').value.trim();
       const link = document.getElementById('outfitLink').value.trim();
       const price = document.getElementById('outfitPrice').value.trim();
       const status = document.getElementById('outfitStatus').value;
       const notes = document.getElementById('outfitNotes').value.trim();
+      const file = document.getElementById('outfitFile').files[0];
       if(!item) return showToast('Name the item first');
-      state.attireWishlist.push({id:uid(), item, link, price, status, notes});
+      let imageUrl = '';
+      if(file){
+        try{ imageUrl = await resizeImageFile(file, 900); }
+        catch(e){ showToast('Could not read that photo'); }
+      }
+      state.attireWishlist.push({id:uid(), item, link, price, status, notes, imageUrl});
       document.getElementById('outfitItem').value='';
       document.getElementById('outfitLink').value='';
       document.getElementById('outfitPrice').value='';
       document.getElementById('outfitNotes').value='';
+      document.getElementById('outfitFile').value='';
       queueSave(); renderOutfits();
     });
 
