@@ -464,6 +464,28 @@
     <div id="partyList"></div>
   </section>
 
+  <section class="panel" id="panel-songs">
+    <div class="section-head">
+      <div><h2>Songs</h2><div class="section-sub">Must-plays, do-not-plays, and the playlist you're building</div></div>
+    </div>
+    <div class="card">
+      <div class="row-grid" style="grid-template-columns:1fr auto;align-items:end;">
+        <div><span class="field-label">Playlist link (Spotify, Apple Music, etc.)</span><input type="url" id="playlistLinkInput" placeholder="https://open.spotify.com/playlist/..."></div>
+        <button class="btn add" id="savePlaylistBtn">Save link</button>
+      </div>
+      <div id="playlistLinkDisplay" style="margin-top:10px;"></div>
+    </div>
+    <div class="card">
+      <div class="row-grid" style="grid-template-columns:1fr 1fr;">
+        <div><span class="field-label">Artist</span><input id="songArtist" placeholder="Artist"></div>
+        <div><span class="field-label">Title</span><input id="songTitle" placeholder="Song title"></div>
+        <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input id="songNotes" placeholder="First dance, do-not-play, requested by..."></div>
+      </div>
+      <button class="btn add" id="addSongBtn">Add song</button>
+    </div>
+    <div id="songsList"></div>
+  </section>
+
   <section class="panel" id="panel-timeline">
     <div class="section-head">
       <div><h2>Day-Of Timeline</h2><div class="section-sub">Fill in your times, then share with vendors and party</div></div>
@@ -524,6 +546,7 @@
     {id:'attire', label:'Attire'},
     {id:'vendors', label:'Vendors'},
     {id:'party', label:'Party & Gifts'},
+    {id:'songs', label:'Songs'},
     {id:'timeline', label:'Day-Of Timeline'},
     {id:'kit', label:'Emergency Kit'},
     {id:'notes', label:'Notes'},
@@ -658,6 +681,8 @@
     attireWishlist:[],
     vendors:[],
     party:[],
+    songs:[],
+    playlistLink:'',
     timeline:[],
     emergencyKit:{},
     notes:'',
@@ -666,7 +691,7 @@
 
   let state = DEFAULT_STATE();
   let saveTimer = null;
-  const editing = { dates:null, vision:null, outfits:null, vendors:null, party:null, timeline:null, miscNotes:null };
+  const editing = { dates:null, vision:null, outfits:null, vendors:null, party:null, timeline:null, miscNotes:null, songs:null };
 
   function uid(){ return Math.random().toString(36).slice(2,10); }
 
@@ -1382,6 +1407,69 @@
     });
   }
 
+  /* ---------- Songs ---------- */
+  function renderPlaylistLink(){
+    document.getElementById('playlistLinkInput').value = state.playlistLink || '';
+    const display = document.getElementById('playlistLinkDisplay');
+    display.innerHTML = state.playlistLink
+      ? `<a href="${escapeAttr(state.playlistLink)}" target="_blank" rel="noopener" style="font-size:14.5px;">Open playlist</a>`
+      : '';
+  }
+  function renderSongs(){
+    const list = document.getElementById('songsList');
+    if(!state.songs.length){ list.innerHTML = '<p class="empty-hint">No songs yet — add your first one above.</p>'; return; }
+    list.innerHTML = state.songs.map(s=>{
+      if(editing.songs === s.id){
+        return `<div class="card edit-form">
+          <div class="row-grid" style="grid-template-columns:1fr 1fr;">
+            <div><span class="field-label">Artist</span><input type="text" data-f="artist" value="${escapeAttr(s.artist||'')}"></div>
+            <div><span class="field-label">Title</span><input type="text" data-f="title" value="${escapeAttr(s.title||'')}"></div>
+            <div style="grid-column:1/-1;"><span class="field-label">Notes</span><input type="text" data-f="notes" value="${escapeAttr(s.notes||'')}"></div>
+          </div>
+          <div class="row-actions">
+            <button class="row-action save" data-id="${s.id}">Save</button>
+            <button class="row-action cancel" data-id="${s.id}">Cancel</button>
+          </div>
+        </div>`;
+      }
+      return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:16px;">${escapeHtml(s.title)} ${s.artist?`<span style="color:var(--ink-soft);">— ${escapeHtml(s.artist)}</span>`:''}</div>
+          ${s.notes?`<div style="font-size:14px;color:var(--ink-soft);margin-top:4px;">${escapeHtml(s.notes)}</div>`:''}
+        </div>
+        <div class="row-actions">
+          <button class="row-action edit" data-id="${s.id}">Edit</button>
+          <button class="row-action remove" data-id="${s.id}">Remove</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.row-action.edit').forEach(b=>{
+      b.addEventListener('click', ()=>{ editing.songs = b.dataset.id; renderSongs(); });
+    });
+    list.querySelectorAll('.row-action.cancel').forEach(b=>{
+      b.addEventListener('click', ()=>{ editing.songs = null; renderSongs(); });
+    });
+    list.querySelectorAll('.row-action.remove').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        state.songs = state.songs.filter(s=>s.id!==b.dataset.id);
+        queueSave(); renderSongs();
+      });
+    });
+    list.querySelectorAll('.row-action.save').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const card = b.closest('.card');
+        const s = state.songs.find(x=>x.id===b.dataset.id);
+        if(s){
+          s.artist = card.querySelector('[data-f="artist"]').value.trim();
+          s.title = card.querySelector('[data-f="title"]').value.trim();
+          s.notes = card.querySelector('[data-f="notes"]').value.trim();
+        }
+        editing.songs = null;
+        queueSave(); renderSongs();
+      });
+    });
+  }
+
   /* ---------- Timeline ---------- */
   function renderTimeline(){
     const list = document.getElementById('tlList');
@@ -1618,6 +1706,24 @@
       queueSave(); renderParty();
     });
 
+    document.getElementById('addSongBtn').addEventListener('click', ()=>{
+      const artist = document.getElementById('songArtist').value.trim();
+      const title = document.getElementById('songTitle').value.trim();
+      const notes = document.getElementById('songNotes').value.trim();
+      if(!title) return showToast('Add a song title first');
+      state.songs.push({id:uid(), artist, title, notes});
+      document.getElementById('songArtist').value='';
+      document.getElementById('songTitle').value='';
+      document.getElementById('songNotes').value='';
+      queueSave(); renderSongs();
+    });
+
+    document.getElementById('savePlaylistBtn').addEventListener('click', ()=>{
+      state.playlistLink = document.getElementById('playlistLinkInput').value.trim();
+      queueSave(); renderPlaylistLink();
+      showToast('Playlist link saved');
+    });
+
     document.getElementById('addTlBtn').addEventListener('click', ()=>{
       const time = document.getElementById('tlTime').value;
       const event = document.getElementById('tlEvent').value.trim();
@@ -1662,6 +1768,8 @@
     renderOutfits();
     renderVendors();
     renderParty();
+    renderSongs();
+    renderPlaylistLink();
     renderTimeline();
     renderKit();
     renderNotesList();
